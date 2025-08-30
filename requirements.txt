@@ -1,0 +1,32 @@
+# Core Application Dependencies
+langgraph>=0.2.0
+instructor>=1.0.0
+pydantic>=2.0.0
+fastapi>=0.100.0
+uvicorn[standard]>=0.24.0
+redis>=5.0.0
+pinecone>=7.0.0
+openai>=1.0.0
+anthropic>=0.25.0
+httpx>=0.25.0
+loguru>=0.7.0
+python-dotenv>=1.0.0
+langdetect>=1.0.9
+phonenumbers>=8.13.0
+pytz>=2023.3
+schedule>=1.2.0
+websockets>=12.0
+pycountry>=22.0.0
+
+# Scheduling
+apscheduler>=3.10.0
+
+# Development and Testing Dependencies
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.1.0
+black>=23.9.0
+isort>=5.12.0
+flake8>=6.1.0
+mypy>=1.6.0
+pre-commit>=3.5.0

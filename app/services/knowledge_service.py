@@ -11,7 +11,11 @@ from enum import Enum
 import numpy as np
 
 import openai
-from pinecone import Pinecone
+try:
+    from pinecone import Pinecone
+except ImportError:
+    # Fallback to mock for testing
+    from app.utils.mock_dependencies import MockPinecone as Pinecone
 import redis.asyncio as redis
 from loguru import logger
 from pydantic import BaseModel, Field

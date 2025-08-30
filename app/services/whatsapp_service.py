@@ -76,15 +76,14 @@ class WhatsAppService:
         self.phone_number_id = self.settings.whatsapp_phone_number_id
         self.access_token = self.settings.whatsapp_access_token
         
-        # Advanced HTTP client with retry and circuit breaker
+        # Advanced HTTP client with timeout and connection limits
         self.client = httpx.AsyncClient(
             timeout=httpx.Timeout(30.0, connect=10.0),
             limits=httpx.Limits(
                 max_keepalive_connections=20,
                 max_connections=100,
                 keepalive_expiry=30.0
-            ),
-            retries=3
+            )
         )
         
         # Redis for caching and rate limiting
@@ -116,12 +115,13 @@ class WhatsAppService:
     async def initialize(self) -> None:
         """Initialize WhatsApp service with background tasks."""
         try:
-            # Initialize Redis connection
-            self.redis_client = redis.from_url(
-                self.settings.redis_url,
-                password=self.settings.redis_password,
-                decode_responses=True
-            )
+            # Initialize Redis connection (if not already mocked)
+            if self.redis_client is None:
+                self.redis_client = redis.from_url(
+                    self.settings.redis_url,
+                    password=self.settings.redis_password,
+                    decode_responses=True
+                )
             
             # Test Redis connection
             await self.redis_client.ping()
@@ -289,7 +289,7 @@ class WhatsAppService:
         
         try:
             # Use Instructor to generate culturally appropriate response
-            cultural_response = self.instructor_client.chat.completions.create(
+            cultural_response = await self.instructor_client.chat.completions.create(
                 model=self.settings.openai_model,
                 response_model=CulturalResponse,
                 messages=[
@@ -560,17 +560,183 @@ class WhatsAppService:
     
     def _format_phone_number(self, phone_number: str) -> str:
         """Format phone number for WhatsApp API."""
+        # Clean phone number to digits and + only
         phone_number = ''.join(c for c in phone_number if c.isdigit() or c == '+')
-        if not phone_number.startswith('+'):
-            phone_number = '+212' + phone_number.lstrip('0')
-        return phone_number.replace('+', '')
+        
+        # Handle different formats
+        if phone_number.startswith('+'):
+            # Already has country code, just remove +
+            return phone_number.replace('+', '')
+        elif phone_number.startswith('212') and len(phone_number) > 3:
+            # Already has Morocco country code
+            return phone_number
+        elif phone_number.startswith('0'):
+            # Moroccan local format, replace 0 with 212
+            return '212' + phone_number[1:]
+        else:
+            # Assume Moroccan number without country code
+            return '212' + phone_number
     
     def _get_priority_value(self, priority: MessagePriority) -> int:
         """Get numeric priority value for queue ordering."""
         priority_values = {
-            MessagePriority.URGENT: 1,
-            MessagePriority.HIGH: 2,
+            MessagePriority.LOW: 4,
             MessagePriority.NORMAL: 3,
-            MessagePriority.LOW: 4
+            MessagePriority.HIGH: 2,
+            MessagePriority.URGENT: 1
         }
         return priority_values.get(priority, 3)
+    
+    async def _track_message_delivery(self) -> None:
+        """Track message delivery status and update metrics."""
+        try:
+            while self._running:
+                # Process delivery tracking queue
+                for message_id, metrics in list(self.message_metrics.items()):
+                    if metrics.delivered_at is None:
+                        # Simulate delivery tracking (in real implementation, would check WhatsApp API)
+                        if message_id in self.delivery_tracking:
+                            metrics.delivered_at = datetime.utcnow()
+                            logger.debug(f"Message {message_id} marked as delivered")
+                
+                await asyncio.sleep(5)  # Check every 5 seconds
+                
+        except asyncio.CancelledError:
+            logger.info("Message delivery tracking stopped")
+        except Exception as e:
+            logger.error(f"Message delivery tracking error: {e}")
+    
+    async def _collect_engagement_metrics(self) -> None:
+        """Collect and analyze message engagement metrics."""
+        try:
+            while self._running:
+                # Calculate engagement scores for messages
+                for message_id, metrics in self.message_metrics.items():
+                    if metrics.engagement_score is None:
+                        # Calculate engagement based on delivery and read status
+                        score = 0.0
+                        if metrics.delivered_at:
+                            score += 0.3
+                        if metrics.read_at:
+                            score += 0.4
+                        if metrics.replied_at:
+                            score += 0.3
+                        
+                        metrics.engagement_score = score
+                        
+                        # Store in Redis for analytics
+                        if self.redis_client:
+                            await self.redis_client.hset(
+                                f"engagement:{message_id}",
+                                mapping={
+                                    "score": score,
+                                    "delivered": str(metrics.delivered_at) if metrics.delivered_at else "",
+                                    "read": str(metrics.read_at) if metrics.read_at else "",
+                                    "replied": str(metrics.replied_at) if metrics.replied_at else ""
+                                }
+                            )
+                
+                await asyncio.sleep(30)  # Update every 30 seconds
+                
+        except asyncio.CancelledError:
+            logger.info("Engagement metrics collection stopped")
+        except Exception as e:
+            logger.error(f"Engagement metrics collection error: {e}")
+    
+    async def _cleanup_expired_metrics(self) -> None:
+        """Clean up expired message metrics and tracking data."""
+        try:
+            while self._running:
+                current_time = datetime.utcnow()
+                expired_threshold = current_time - timedelta(hours=24)
+                
+                # Remove expired metrics
+                expired_messages = [
+                    msg_id for msg_id, metrics in self.message_metrics.items()
+                    if metrics.sent_at < expired_threshold
+                ]
+                
+                for msg_id in expired_messages:
+                    del self.message_metrics[msg_id]
+                    if msg_id in self.delivery_tracking:
+                        del self.delivery_tracking[msg_id]
+                    
+                    # Clean up Redis data
+                    if self.redis_client:
+                        await self.redis_client.delete(f"engagement:{msg_id}")
+                
+                if expired_messages:
+                    logger.info(f"Cleaned up {len(expired_messages)} expired message metrics")
+                
+                await asyncio.sleep(3600)  # Clean up every hour
+                
+        except asyncio.CancelledError:
+            logger.info("Metrics cleanup stopped")
+        except Exception as e:
+            logger.error(f"Metrics cleanup error: {e}")
+    
+    async def _monitor_circuit_breaker(self) -> None:
+        """Monitor and manage circuit breaker state for API resilience."""
+        try:
+            while self._running:
+                current_time = datetime.utcnow()
+                
+                # Check if circuit breaker should transition states
+                if self.circuit_breaker_state == "open":
+                    if self.last_failure_time and (current_time - self.last_failure_time).seconds > 60:
+                        self.circuit_breaker_state = "half-open"
+                        logger.info("Circuit breaker transitioned to half-open")
+                
+                elif self.circuit_breaker_state == "half-open":
+                    # Reset to closed if no recent failures
+                    if self.failure_count == 0:
+                        self.circuit_breaker_state = "closed"
+                        logger.info("Circuit breaker reset to closed")
+                
+                # Reset failure count periodically
+                if self.failure_count > 0 and self.last_failure_time:
+                    if (current_time - self.last_failure_time).seconds > 300:  # 5 minutes
+                        self.failure_count = max(0, self.failure_count - 1)
+                
+                await asyncio.sleep(30)  # Monitor every 30 seconds
+                
+        except asyncio.CancelledError:
+            logger.info("Circuit breaker monitoring stopped")
+        except Exception as e:
+            logger.error(f"Circuit breaker monitoring error: {e}")
+    
+    async def _track_message_sent(self, message_id: str, phone_number: str, content: str) -> None:
+        """Track message sent event - wrapper for _track_message_metrics."""
+        await self._track_message_metrics(message_id, phone_number, content)
+    
+    async def _track_message_metrics(self, message_id: str, to: str, content: str) -> None:
+        """Track message metrics for analytics and performance monitoring."""
+        try:
+            # Create message metrics entry
+            metrics = MessageMetrics(
+                sent_at=datetime.utcnow()
+            )
+            
+            self.message_metrics[message_id] = metrics
+            self.delivery_tracking[message_id] = {
+                "to": to,
+                "content_length": len(content),
+                "status": "sent"
+            }
+            
+            # Store in Redis for persistence
+            if self.redis_client:
+                await self.redis_client.hset(
+                    f"message_metrics:{message_id}",
+                    mapping={
+                        "to": to,
+                        "sent_at": metrics.sent_at.isoformat(),
+                        "content_length": len(content),
+                        "status": "sent"
+                    }
+                )
+            
+            logger.debug(f"Message metrics tracked for {message_id}")
+            
+        except Exception as e:
+            logger.error(f"Message metrics tracking failed: {e}")

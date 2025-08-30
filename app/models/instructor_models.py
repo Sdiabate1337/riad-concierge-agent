@@ -392,6 +392,75 @@ class ResponsePlan(BaseModel):
     )
 
 
+class ProactiveAction(BaseModel):
+    """Proactive action recommendation with timing and context."""
+    
+    action_type: Literal[
+        "welcome_message", "check_in_reminder", "service_offer", 
+        "local_recommendation", "weather_update", "cultural_event_notification",
+        "upsell_opportunity", "feedback_request", "checkout_assistance",
+        "follow_up_message", "special_occasion_greeting", "emergency_notification"
+    ] = Field(..., description="Type of proactive action")
+    
+    trigger_condition: str = Field(
+        ..., 
+        description="Condition that triggered this proactive action"
+    )
+    
+    optimal_timing: Literal[
+        "immediate", "within_hour", "within_day", "scheduled", "event_based"
+    ] = Field(default="immediate", description="Optimal timing for action")
+    
+    priority_level: Literal["low", "medium", "high", "urgent"] = Field(
+        default="medium", 
+        description="Priority level of the action"
+    )
+    
+    personalization_data: Dict[str, Any] = Field(
+        default_factory=dict, 
+        description="Data for personalizing the action"
+    )
+    
+    cultural_considerations: List[str] = Field(
+        default_factory=list, 
+        description="Cultural factors to consider"
+    )
+    
+    expected_impact: Literal[
+        "satisfaction_boost", "revenue_generation", "problem_prevention",
+        "relationship_building", "information_sharing", "service_enhancement"
+    ] = Field(..., description="Expected impact of the action")
+    
+    success_probability: float = Field(
+        default=0.5, 
+        ge=0.0, 
+        le=1.0, 
+        description="Estimated probability of positive outcome"
+    )
+    
+    message_template: Optional[str] = Field(
+        None, 
+        description="Template for the proactive message"
+    )
+    
+    requires_staff_approval: bool = Field(
+        default=False, 
+        description="Whether staff approval is needed before execution"
+    )
+    
+    follow_up_actions: List[str] = Field(
+        default_factory=list, 
+        description="Recommended follow-up actions"
+    )
+    
+    @validator("success_probability")
+    def validate_success_probability(cls, v):
+        """Ensure success probability is reasonable."""
+        if v < 0.1:
+            raise ValueError("Success probability too low for proactive action")
+        return v
+
+
 # Instructor client setup for structured outputs
 def get_instructor_client():
     """Get configured instructor client for structured outputs."""

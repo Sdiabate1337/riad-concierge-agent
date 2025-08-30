@@ -1,0 +1,11 @@
+{
+  "timestamp": 1756578897.953797,
+  "test_type": "simplified_structure_validation",
+  "results": {
+    "passed": 6,
+    "failed": 0,
+    "total": 6,
+    "duration": 0.1207427978515625
+  },
+  "success": null
+}

@@ -1,0 +1,36 @@
+{
+  "timestamp": 1756580138.503705,
+  "summary": {
+    "total_tests": 0,
+    "passed": 0,
+    "failed": 0,
+    "success_rate": 0,
+    "total_duration": 7.783594846725464
+  },
+  "details": {
+    "unit": {
+      "passed": 0,
+      "failed": 0,
+      "skipped": 0,
+      "duration": 7.783594846725464
+    },
+    "integration": {
+      "passed": 0,
+      "failed": 0,
+      "skipped": 0,
+      "duration": 0
+    },
+    "performance": {
+      "passed": 0,
+      "failed": 0,
+      "skipped": 0,
+      "duration": 0
+    }
+  },
+  "performance_baseline": {
+    "response_time": 2.0,
+    "concurrent_users": 20,
+    "cultural_accuracy": 0.9,
+    "knowledge_retrieval": 1.0
+  }
+}
